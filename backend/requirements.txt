@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+python-multipart
+sqlalchemy
+pydantic
+passlib[bcrypt]
+bcrypt
+PyPDF2
+sentence-transformers
+faiss-cpu
+transformers
+torch
+
