@@ -1,0 +1,105 @@
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from database import SessionLocal
+from models import User
+from schemas import Register, Login, ResetPassword
+from utils import hash_password, verify_password, create_jwt, generate_otp
+from otp import OTP
+from email_service import send_otp_email
+
+router = APIRouter()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+# REGISTER
+@router.post("/register")
+def register(user: Register, db: Session = Depends(get_db)):
+    if db.query(User).filter(User.email == user.email).first():
+        raise HTTPException(400, "Email already exists")
+
+    hashed_pwd = hash_password(user.password)
+    new_user = User(email=user.email, username=user.username, password=hashed_pwd)
+    db.add(new_user)
+    db.commit()
+    return {"message": "User registered successfully"}
+
+
+# LOGIN
+@router.post("/login")
+def login(user: Login, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.email == user.email).first()
+
+    if not db_user or not verify_password(user.password, db_user.password):
+        raise HTTPException(401, "Invalid credentials")
+
+    token = create_jwt({"user_id": db_user.id})
+    return {"token": token, "message": "Login successful"}
+
+
+# RESET PASSWORD (Direct)
+@router.post("/reset-password")
+def reset_password(data: ResetPassword, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == data.email).first()
+
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    user.password = hash_password(data.new_password)
+    db.commit()
+    return {"message": "Password reset successful"}
+
+
+
+# ------------------------------
+# OTP SYSTEM STARTS HERE
+# ------------------------------
+
+# SEND OTP
+@router.post("/forgot-password")
+def forgot_password(email: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == email).first()
+
+    if not user:
+        raise HTTPException(404, "Email not registered")
+
+    otp_code = generate_otp()
+
+    db_otp = OTP(email=email, code=otp_code)
+    db.add(db_otp)
+    db.commit()
+
+    send_otp_email(email, otp_code)
+
+    return {"message": "OTP sent to email"}
+
+
+# VERIFY OTP
+@router.post("/verify-otp")
+def verify_otp(email: str, otp: str, db: Session = Depends(get_db)):
+    record = db.query(OTP).filter(OTP.email == email, OTP.code == otp).first()
+
+    if not record:
+        raise HTTPException(400, "Invalid OTP")
+
+    return {"message": "OTP Verified"}
+
+
+# SET NEW PASSWORD USING OTP
+@router.post("/set-new-password")
+def set_new_password(email: str, new_password: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == email).first()
+
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    user.password = hash_password(new_password)
+    db.commit()
+
+    return {"message": "Password reset successful"}
+
