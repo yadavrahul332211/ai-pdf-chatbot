@@ -11,4 +11,5 @@ faiss-cpu
 transformers
 torch
 PyJWT
-
+langchain-text-splitters
+langchain
